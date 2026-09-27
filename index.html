@@ -13,9 +13,10 @@ label{display:block;font-weight:700;margin:0 0 6px}input,select,textarea{width:1
 .result{margin-top:14px}.card{border:1px solid #ddd;border-radius:9px;margin-top:10px;overflow:hidden}.head{background:#f3f4f5;padding:12px;display:flex;justify-content:space-between;gap:8px}
 .badge{padding:6px 10px;border-radius:16px;background:#e7f5e8;color:#26712d;font-weight:700}.s2{background:#e8f0fb;color:#246398}.s3{background:#fff1dc;color:#996100}.out{background:#eee;color:#666}
 .info{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:12px}.info span{display:block;color:#777;font-size:12px;margin-bottom:3px}
-.status{display:none;margin-top:12px;padding:11px;background:#e8f5e8;border-radius:7px}.hint{font-size:13px;color:#777}.history-row{padding:10px 0;border-bottom:1px solid #eee}
+.status{display:none;margin-top:12px;padding:11px;background:#e8f5e8;border-radius:7px}.scan-note{padding:12px;background:#eef7f7;border-radius:8px;font-size:15px}.scan-card{border:2px solid #078b8e;border-radius:10px;margin-top:12px;overflow:hidden}.scan-card .scan-head{background:#eaf7f7;padding:12px;display:flex;justify-content:space-between;gap:8px}.scan-card .scan-info{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px}.scan-card .scan-info span{display:block;color:#777;font-size:12px;margin-bottom:3px}.scan-action{padding:0 12px 12px}.danger{background:#d13b3b}.hint{font-size:13px;color:#777}.history-row{padding:10px 0;border-bottom:1px solid #eee}
 @media(max-width:650px){.nav{grid-template-columns:1fr}.search{grid-template-columns:1fr}.info{grid-template-columns:1fr 1fr}}
-</style></head>
+</style><script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+</head>
 <body>
 <header><h1>Склад — учёт мешков</h1><p>Поиск, добавление и выдача</p></header>
 <div class="wrap">
@@ -47,12 +48,21 @@ label{display:block;font-weight:700;margin:0 0 6px}input,select,textarea{width:1
 </select>
 <div id="wh" style="margin-top:12px"><label>Склад</label>
 <select id="warehouse"><option>Склад 1</option><option>Склад 2</option><option>Склад 3</option></select></div>
+<div id="addBox">
 <div style="margin-top:12px"><label>Вставить данные из KargoSis</label>
 <textarea id="text" rows="10" placeholder="Вставьте сюда весь скопированный список KargoSis"></textarea></div>
 <div style="margin-top:12px"><label>Или выбрать текстовый файл</label><input id="file" type="file" accept=".txt,.csv"></div>
 <button class="btn blue" style="width:100%;margin-top:12px" onclick="operate()">ЗАГРУЗИТЬ</button>
+</div>
+<div id="removeBox" style="display:none;margin-top:14px">
+<div class="scan-note">Для выдачи отсканируйте <b>Баркод</b> именно этого мешка.</div>
+<button class="btn teal" style="width:100%;margin-top:10px" onclick="startScanner()">📷 СКАНИРОВАТЬ БАРКОД</button>
+<div id="reader" style="width:100%;margin-top:12px;display:none"></div>
+<div id="scanStatus" class="status"></div>
+<div id="scanCard"></div>
+</div>
 <div id="status" class="status"></div>
-<p class="hint">Для добавления дата и время получения ставятся автоматически. Müşteri Kodu записывается как Номер клиента / Чувал №. При выдаче склад выбирать не нужно — система сама найдёт мешок по баркоду.</p>
+<p class="hint">При добавлении дата и время получения ставятся автоматически. Müşteri Kodu записывается как Номер клиента / Чувал №. При выдаче склад выбирать не нужно — сканируется Баркод, система находит ровно этот мешок и показывает всю его информацию.</p>
 </section>
 
 <section id="hist" class="panel" style="display:none">
@@ -61,25 +71,41 @@ label{display:block;font-weight:700;margin:0 0 6px}input,select,textarea{width:1
 </section>
 </div>
 <script>
-function page(p){['search','op','hist'].forEach(x=>document.getElementById(x).style.display=x===p?'block':'none');document.getElementById('n1').classList.toggle('active',p==='search');document.getElementById('n2').classList.toggle('active',p==='op');document.getElementById('n3').classList.toggle('active',p==='hist');if(p==='hist')loadHistory();window.scrollTo(0,0)}
-function mode(){document.getElementById('wh').style.display=document.getElementById('action').value==='add'?'block':'none'}
+let scanner=null;
+let scannedBarcode='';
+function page(p){
+ if(p!=='op') stopScanner();
+ ['search','op','hist'].forEach(x=>document.getElementById(x).style.display=x===p?'block':'none');
+ document.getElementById('n1').classList.toggle('active',p==='search');document.getElementById('n2').classList.toggle('active',p==='op');document.getElementById('n3').classList.toggle('active',p==='hist');if(p==='hist')loadHistory();window.scrollTo(0,0)
+}
+function mode(){
+ const remove=document.getElementById('action').value==='remove';
+ document.getElementById('wh').style.display=remove?'none':'block';
+ document.getElementById('addBox').style.display=remove?'none':'block';
+ document.getElementById('removeBox').style.display=remove?'block':'none';
+ if(!remove) stopScanner();
+}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-async function search(){
- const type=document.getElementById('stype').value,v=document.getElementById('svalue').value.trim();if(!v)return;
- const r=await fetch('/api/search?type='+encodeURIComponent(type)+'&value='+encodeURIComponent(v)).then(x=>x.json());
- const el=document.getElementById('results');
- if(!r.length){el.innerHTML='<p>Ничего не найдено.</p>';return}
- el.innerHTML=r.map(x=>`<div class="card">
- <div class="head"><b>Номер клиента: ${esc(x.cuval||'—')}</b>
+function card(x,scan=false){return `<div class="${scan?'scan-card':'card'}">
+ <div class="${scan?'scan-head':'head'}"><b>Номер клиента / Чувал №: ${esc(x.cuval||'—')}</b>
  <span class="badge ${x.status!=='В наличии'?'out':x.warehouse==='Склад 2'?'s2':x.warehouse==='Склад 3'?'s3':''}">${esc(x.status==='В наличии'?x.warehouse:'Выдан')}</span></div>
- <div class="info">
+ <div class="${scan?'scan-info':'info'}">
  <div><span>Баркод</span><b>${esc(x.barcode)}</b></div>
  <div><span>Фиш №</span><b>${esc(x.fis||'—')}</b></div>
  <div><span>KG</span><b>${esc(x.kg||'—')}</b></div>
  <div><span>Получен</span><b>${esc(x.received_at||x.added_at||'—')}</b></div>
  <div><span>Товар</span><b>${esc(x.name||'—')}</b></div>
  <div><span>Отправитель</span><b>${esc(x.sender||'—')}</b></div>
- </div></div>`).join('')
+ <div><span>Склад</span><b>${esc(x.warehouse||'—')}</b></div>
+ <div><span>Статус</span><b>${esc(x.status||'—')}</b></div>
+ ${x.issued_at?`<div><span>Выдан</span><b>${esc(x.issued_at)}</b></div>`:''}
+ </div>${scan&&x.status==='В наличии'?'<div class="scan-action"><button class="btn danger" style="width:100%" onclick="issueScanned()">ВЫДАТЬ ЭТОТ МЕШОК</button></div>':''}</div>`}
+async function search(){
+ const type=document.getElementById('stype').value,v=document.getElementById('svalue').value.trim();if(!v)return;
+ const r=await fetch('/api/search?type='+encodeURIComponent(type)+'&value='+encodeURIComponent(v)).then(x=>x.json());
+ const el=document.getElementById('results');
+ if(!r.length){el.innerHTML='<p>Ничего не найдено.</p>';return}
+ el.innerHTML=r.map(x=>card(x,false)).join('')
 }
 async function operate(){
  const a=document.getElementById('action').value,fd=new FormData();
@@ -90,6 +116,50 @@ async function operate(){
  if(!r.ok){s.textContent=d.error||'Ошибка';return}
  s.innerHTML=a==='add'?`Распознано: <b>${d.parsed}</b><br>Добавлено: <b>${d.added}</b><br>Дубликатов: <b>${d.duplicates}</b>`:`Распознано: <b>${d.parsed}</b><br>Выдано: <b>${d.removed}</b><br>Не найдено: <b>${d.notFound}</b>`;
  document.getElementById('text').value='';document.getElementById('file').value=''
+}
+async function startScanner(){
+ const reader=document.getElementById('reader');
+ const status=document.getElementById('scanStatus');
+ status.style.display='none';status.textContent='';
+ document.getElementById('scanCard').innerHTML='';
+ reader.style.display='block';
+ if(scanner) stopScanner();
+ if(typeof Html5Qrcode==='undefined'){status.style.display='block';status.textContent='Сканер не загрузился. Проверьте интернет и обновите страницу.';return}
+ scanner=new Html5Qrcode('reader');
+ try{
+  await scanner.start({facingMode:'environment'},{fps:10,qrbox:{width:280,height:140},aspectRatio:1.777},onScanSuccess,()=>{});
+ }catch(e){
+  status.style.display='block';status.textContent='Не удалось открыть камеру. Разрешите доступ к камере для сайта.';reader.style.display='none';scanner=null;
+ }
+}
+async function onScanSuccess(decodedText){
+ const code=String(decodedText||'').trim();
+ if(!code||code===scannedBarcode)return;
+ scannedBarcode=code;
+ stopScanner();
+ const status=document.getElementById('scanStatus');status.style.display='block';status.textContent='Ищу мешок по баркоду '+code+'…';
+ try{
+  const r=await fetch('/api/search?type=barcode&value='+encodeURIComponent(code)).then(x=>x.json());
+  if(!r.length){status.textContent='Мешок с баркодом '+code+' не найден.';document.getElementById('scanCard').innerHTML='';scannedBarcode='';return}
+  const x=r[0];
+  status.textContent=x.status==='В наличии'?'Мешок найден. Проверьте информацию и нажмите «ВЫДАТЬ ЭТОТ МЕШОК».':'Этот мешок уже выдан.';
+  document.getElementById('scanCard').innerHTML=card(x,true);
+ }catch(e){status.textContent='Ошибка поиска. Попробуйте ещё раз.';scannedBarcode=''}
+}
+async function issueScanned(){
+ if(!scannedBarcode)return;
+ const code=scannedBarcode;
+ const r=await fetch('/api/issue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({barcode:code})});
+ const d=await r.json();
+ const status=document.getElementById('scanStatus');status.style.display='block';
+ if(!r.ok){status.textContent=d.error||'Не удалось выдать мешок.';return}
+ status.textContent='Мешок выдан. Баркод '+d.item.barcode+' • Склад: '+d.item.warehouse+' • Время: '+d.item.issued_at;
+ document.getElementById('scanCard').innerHTML=card(d.item,true).replace('ВЫДАТЬ ЭТОТ МЕШОК','ВЫДАНО');
+ scannedBarcode='';
+}
+function stopScanner(){
+ if(scanner){try{scanner.stop().catch(()=>{});}catch(e){} try{scanner.clear();}catch(e){} scanner=null;}
+ const r=document.getElementById('reader');if(r)r.style.display='none';
 }
 async function loadHistory(){const r=await fetch('/api/history').then(x=>x.json());document.getElementById('history').innerHTML=r.length?r.map(x=>`<div class="history-row"><b>${esc(x.action)}</b> — ${esc(x.barcode)} / Номер клиента ${esc(x.cuval||'—')} / ${esc(x.warehouse||'—')}<br><small>${esc(x.time)}</small></div>`).join(''):'<p>История пока пустая.</p>'}
 mode();

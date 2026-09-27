@@ -207,6 +207,22 @@ app.post("/api/operation", upload.single("file"), (req,res)=>{
   res.json({added,removed,duplicates,notFound,total:items.length,parsed:items.length});
 });
 
+app.post("/api/issue", (req,res)=>{
+  const barcode = clean(req.body?.barcode);
+  if (!barcode) return res.status(400).json({error:"Не указан баркод."});
+  const row = db.prepare("SELECT * FROM items WHERE barcode=? AND status='В наличии'").get(barcode);
+  if (!row) {
+    const existing = db.prepare("SELECT * FROM items WHERE barcode=?").get(barcode);
+    if (existing && existing.status === "Выдан") return res.status(409).json({error:"Этот мешок уже выдан."});
+    return res.status(404).json({error:"Мешок с таким баркодом не найден."});
+  }
+  const t = now();
+  db.prepare("UPDATE items SET status='Выдан',issued_at=? WHERE id=?").run(t,row.id);
+  db.prepare("INSERT INTO history(action,barcode,cuval,warehouse,time) VALUES(?,?,?,?,?)").run("Выдан",row.barcode,row.cuval,row.warehouse,t);
+  const item = db.prepare("SELECT * FROM items WHERE id=?").get(row.id);
+  res.json({item});
+});
+
 app.get("/api/export",(req,res)=>{
   const rows = db.prepare("SELECT barcode,cuval,fis,name,sender,customer,kg,received_at,warehouse,status FROM items ORDER BY id").all();
   const esc=v=>`"${String(v??"").replaceAll('"','""')}"`;
