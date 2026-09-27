@@ -11,128 +11,163 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, "data");
 fs.mkdirSync(DATA_DIR, { recursive: true });
-
 const db = new Database(path.join(DATA_DIR, "warehouse.db"));
 db.pragma("journal_mode = WAL");
+
 db.exec(`
 CREATE TABLE IF NOT EXISTS items(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  barcode TEXT UNIQUE NOT NULL,
-  cuval TEXT DEFAULT '',
-  fis TEXT DEFAULT '',
-  date TEXT DEFAULT '',
-  code TEXT DEFAULT '',
-  name TEXT DEFAULT '',
-  kg TEXT DEFAULT '',
-  warehouse TEXT DEFAULT '',
-  status TEXT NOT NULL DEFAULT 'В наличии',
-  added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  issued_at TEXT DEFAULT ''
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ barcode TEXT UNIQUE NOT NULL,
+ cuval TEXT DEFAULT '',
+ fis TEXT DEFAULT '',
+ date TEXT DEFAULT '',
+ code TEXT DEFAULT '',
+ name TEXT DEFAULT '',
+ kg TEXT DEFAULT '',
+ warehouse TEXT DEFAULT '',
+ status TEXT NOT NULL DEFAULT 'В наличии',
+ added_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ issued_at TEXT DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS history(
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  action TEXT NOT NULL,
-  barcode TEXT NOT NULL,
-  cuval TEXT DEFAULT '',
-  warehouse TEXT DEFAULT '',
-  time TEXT NOT NULL
+ id INTEGER PRIMARY KEY AUTOINCREMENT,
+ action TEXT NOT NULL,
+ barcode TEXT NOT NULL,
+ cuval TEXT DEFAULT '',
+ warehouse TEXT DEFAULT '',
+ time TEXT NOT NULL
 );
 `);
+
+// Compatibility with the first version of the site.
+try { db.exec("ALTER TABLE items ADD COLUMN received_at TEXT DEFAULT ''"); } catch {}
 
 app.use(express.json({limit:"10mb"}));
 app.use(express.urlencoded({extended:true}));
 app.get("/", (req,res)=>res.sendFile(path.join(__dirname,"index.html")));
-
 const upload = multer({storage: multer.memoryStorage()});
 
+function clean(s){ return String(s ?? "").replace(/^\uFEFF/, "").trim(); }
+function normHeader(s){ return clean(s).toLowerCase().replace(/[.:]/g, "").replace(/\s+/g," "); }
+function isHeader(line){
+  const n=normHeader(line);
+  return n.includes("fiş no") && n.includes("barkod") && n.includes("müşteri kodu") && n.includes("ağırlık");
+}
+
+function parseKargoRow(fields){
+  // KargoSis order: Fiş No | Barkod | Malzeme | Gönderen | Müşteri Kodu | Müşteri | Ağırlık
+  if(fields.length < 7) return null;
+  return {
+    fis: clean(fields[0]),
+    barcode: clean(fields[1]),
+    material: clean(fields[2]),
+    sender: clean(fields[3]),
+    cuval: clean(fields[4]),
+    customer: clean(fields[5]),
+    kg: clean(fields[6])
+  };
+}
+
 function parseText(text){
+  const src=String(text||"").replace(/\r/g,"");
+  const lines=src.split("\n").map(clean);
   const out=[];
-  for(const raw of String(text||"").split(/\r?\n/)){
-    const line=raw.trim();
-    if(!line) continue;
-    if(/^(barcode|баркод|barkod)$/i.test(line)) continue;
-    let p=line.split(/\s*[|;\t]\s*/);
-    if(p.length<2) p=line.split(/\s*,\s*/);
-    if(p.length===1){
-      out.push({barcode:p[0].trim(),cuval:"",fis:"",date:"",code:"",name:"",kg:""});
-    }else{
-      out.push({
-        barcode:(p[0]||"").trim(),
-        cuval:(p[1]||"").trim(),
-        fis:(p[2]||"").trim(),
-        date:(p[3]||"").trim(),
-        code:(p[4]||"").trim(),
-        name:(p[5]||"").trim(),
-        kg:(p[6]||"").trim()
-      });
+
+  // 1) Preferred: copied KargoSis table with tab/semicolon/pipe separated columns.
+  for(const raw of lines){
+    if(!raw || isHeader(raw)) continue;
+    let p=raw.split(/\t|\s*\|\s*|\s*;\s*/).map(clean);
+    if(p.length>=7){
+      const x=parseKargoRow(p);
+      if(x?.barcode && x?.fis){ out.push(x); continue; }
     }
   }
-  return out.filter(x=>x.barcode);
+  if(out.length) return out;
+
+  // 2) Plain text exported as seven successive fields per record.
+  // Supports the text form often produced when a KargoSis table is copied from a document.
+  const useful=lines.filter(Boolean).filter(x=>!isHeader(x));
+  let i=0;
+  while(i<useful.length){
+    // optional row number at the beginning
+    if(/^\d+$/.test(useful[i]) && useful.length-i>=8) i++;
+    if(i+6<useful.length){
+      const candidate=useful.slice(i,i+7);
+      const looksLikeRecord=/^\d+$/.test(candidate[0]) && /^\d+$/.test(candidate[1]) && /^\d+(?:[.,]\d+)?$/.test(candidate[6]);
+      if(looksLikeRecord){
+        const x=parseKargoRow(candidate);
+        if(x?.barcode){ out.push(x); i+=7; continue; }
+      }
+    }
+    // Fallback: one barcode per line for scanner files.
+    const one=clean(useful[i]);
+    if(/^\d{4,}$/.test(one)) out.push({fis:"",barcode:one,material:"",sender:"",cuval:"",customer:"",kg:""});
+    i++;
+  }
+  return out;
 }
 
-function now(){
-  return new Date().toLocaleString("ru-RU",{dateStyle:"short",timeStyle:"medium"});
-}
+function now(){ return new Date().toLocaleString("ru-RU",{dateStyle:"short",timeStyle:"medium"}); }
 
 app.get("/api/search", (req,res)=>{
-  const type = ["cuval","barcode","fis"].includes(req.query.type) ? req.query.type : "cuval";
-  const value = String(req.query.value||"").trim();
+  const type=["cuval","barcode","fis"].includes(req.query.type)?req.query.type:"cuval";
+  const value=clean(req.query.value);
   if(!value) return res.json([]);
-  const rows = db.prepare(`SELECT * FROM items WHERE ${type}=? ORDER BY id DESC`).all(value);
+  const rows=db.prepare(`SELECT * FROM items WHERE ${type}=? ORDER BY id DESC`).all(value);
   res.json(rows);
 });
 
-app.get("/api/history",(req,res)=>{
-  res.json(db.prepare("SELECT * FROM history ORDER BY id DESC LIMIT 300").all());
-});
+app.get("/api/history", (req,res)=>res.json(db.prepare("SELECT * FROM history ORDER BY id DESC LIMIT 300").all()));
 
 app.post("/api/operation", upload.single("file"), (req,res)=>{
-  const action = req.body.action;
-  const warehouse = req.body.warehouse || "";
-  const text = req.body.text || (req.file ? req.file.buffer.toString("utf8") : "");
+  const action=req.body.action;
+  const warehouse=req.body.warehouse||"";
+  const text=req.body.text || (req.file ? req.file.buffer.toString("utf8") : "");
   if(!text.trim()) return res.status(400).json({error:"Нет данных для обработки."});
   if(!["add","remove"].includes(action)) return res.status(400).json({error:"Неизвестное действие."});
-  if(action==="add" && !["Склад 1","Склад 2","Склад 3"].includes(warehouse))
-    return res.status(400).json({error:"Выберите склад."});
+  if(action==="add" && !["Склад 1","Склад 2","Склад 3"].includes(warehouse)) return res.status(400).json({error:"Выберите склад."});
 
   const items=parseText(text);
-  let added=0, removed=0, duplicates=0, notFound=0;
-  const insert=db.prepare(`INSERT INTO items(barcode,cuval,fis,date,code,name,kg,warehouse,status)
-    VALUES(@barcode,@cuval,@fis,@date,@code,@name,@kg,@warehouse,'В наличии')`);
-  const hist=db.prepare(`INSERT INTO history(action,barcode,cuval,warehouse,time) VALUES(?,?,?,?,?)`);
-  const update=db.prepare(`UPDATE items SET status='Выдан',issued_at=? WHERE id=?`);
+  if(!items.length) return res.status(400).json({error:"Не удалось распознать данные KargoSis. Проверьте, что вставлены строки с Fiş No, Barkod, Müşteri Kodu и Ağırlık."});
+
+  let added=0,removed=0,duplicates=0,notFound=0;
+  const hist=db.prepare("INSERT INTO history(action,barcode,cuval,warehouse,time) VALUES(?,?,?,?,?)");
+  const insert=db.prepare(`INSERT INTO items(barcode,cuval,fis,date,code,name,kg,warehouse,status,added_at,received_at)
+    VALUES(@barcode,@cuval,@fis,'','',@material,@kg,@warehouse,'В наличии',@received_at,@received_at)`);
+  const updateOld=db.prepare(`UPDATE items SET cuval=?,fis=?,kg=?,warehouse=?,status='В наличии',issued_at='',added_at=?,received_at=? WHERE id=?`);
+  const issue=db.prepare("UPDATE items SET status='Выдан',issued_at=? WHERE id=?");
   const tx=db.transaction(()=>{
     for(const x of items){
       if(action==="add"){
         const existing=db.prepare("SELECT * FROM items WHERE barcode=?").get(x.barcode);
-        if(existing && existing.status==="В наличии"){duplicates++; continue;}
-        if(existing && existing.status==="Выдан"){
-          // Re-use the barcode as a new stock entry while keeping old history.
-          db.prepare(`UPDATE items SET cuval=?,fis=?,date=?,code=?,name=?,kg=?,warehouse=?,status='В наличии',issued_at='' WHERE id=?`)
-            .run(x.cuval,x.fis,x.date,x.code,x.name,x.kg,warehouse,existing.id);
+        const received=now();
+        if(existing && existing.status==="В наличии"){ duplicates++; continue; }
+        if(existing){
+          updateOld.run(x.cuval,x.fis,x.kg,warehouse,received,received,existing.id);
         }else{
-          insert.run({...x,warehouse});
+          insert.run({...x,warehouse,received_at:received});
         }
-        hist.run("Добавлен",x.barcode,x.cuval,warehouse,now());
+        hist.run("Добавлен",x.barcode,x.cuval,warehouse,received);
         added++;
       }else{
         const row=db.prepare("SELECT * FROM items WHERE barcode=? AND status='В наличии'").get(x.barcode);
-        if(!row){notFound++; continue;}
-        update.run(now(),row.id);
-        hist.run("Выдан",row.barcode,row.cuval,row.warehouse,now());
+        if(!row){ notFound++; continue; }
+        const t=now();
+        issue.run(t,row.id);
+        hist.run("Выдан",row.barcode,row.cuval,row.warehouse,t);
         removed++;
       }
     }
   });
   tx();
-  res.json({added,removed,duplicates,notFound,total:items.length});
+  res.json({added,removed,duplicates,notFound,total:items.length,parsed:items.length});
 });
 
 app.get("/api/export",(req,res)=>{
-  const rows=db.prepare("SELECT barcode,cuval,fis,date,code,name,kg,warehouse,status FROM items ORDER BY id").all();
+  const rows=db.prepare("SELECT barcode,cuval,fis,kg,received_at,warehouse,status FROM items ORDER BY id").all();
   const esc=v=>`"${String(v??"").replaceAll('"','""')}"`;
-  const csv="\ufeffБаркод,Чувал №,Фиш №,Дата,Код,Имя,KG,Склад,Статус\n"+
-    rows.map(r=>[r.barcode,r.cuval,r.fis,r.date,r.code,r.name,r.kg,r.warehouse,r.status].map(esc).join(",")).join("\n");
+  const csv="\ufeffБаркод,Номер клиента (Чувал №),Фиш №,KG,Получен,Склад,Статус\n"+
+    rows.map(r=>[r.barcode,r.cuval,r.fis,r.kg,r.received_at,r.warehouse,r.status].map(esc).join(",")).join("\n");
   res.setHeader("Content-Type","text/csv; charset=utf-8");
   res.setHeader("Content-Disposition",'attachment; filename="склад_база.csv"');
   res.send(csv);
