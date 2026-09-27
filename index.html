@@ -3,22 +3,94 @@
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Склад — учёт мешков</title>
 <style>
-*{box-sizing:border-box}body{margin:0;background:#f5f6f7;color:#20252b;font-family:Arial,sans-serif}header{background:#078b8e;color:white;padding:18px 16px}header h1{margin:0;font-size:23px}header p{margin:6px 0 0}.wrap{max-width:900px;margin:16px auto;padding:0 12px}.nav{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:14px}.nav button,.btn{border:0;border-radius:8px;font-weight:700;cursor:pointer}.nav button{height:48px;background:white;border:1px solid #ddd;font-size:15px}.nav .active{background:#078b8e;color:white}.panel{background:white;border-radius:10px;padding:16px;box-shadow:0 2px 10px #0001;margin-bottom:14px}h2{font-size:20px;margin:0 0 14px}label{display:block;font-weight:700;margin:0 0 6px}input,select,textarea{width:100%;padding:12px;border:1px solid #bbc1c7;border-radius:7px;font-size:16px;background:#fff}.search{display:grid;grid-template-columns:190px 1fr 120px;gap:8px}.btn{height:48px;color:white;padding:0 15px}.teal{background:#078b8e}.blue{background:#2878b8}.green{background:#45a64b}.result{margin-top:14px}.card{border:1px solid #ddd;border-radius:9px;margin-top:10px;overflow:hidden}.head{background:#f3f4f5;padding:12px;display:flex;justify-content:space-between;gap:8px}.badge{padding:6px 10px;border-radius:16px;background:#e7f5e8;color:#26712d;font-weight:700}.s2{background:#e8f0fb;color:#246398}.s3{background:#fff1dc;color:#996100}.out{background:#eee;color:#666}.info{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:12px}.info span{display:block;color:#777;font-size:12px;margin-bottom:3px}.status{display:none;margin-top:12px;padding:11px;background:#e8f5e8;border-radius:7px}.hint{font-size:13px;color:#777}.history-row{padding:10px 0;border-bottom:1px solid #eee}@media(max-width:650px){.nav{grid-template-columns:1fr}.search{grid-template-columns:1fr}.info{grid-template-columns:1fr 1fr}}
+*{box-sizing:border-box}body{margin:0;background:#f5f6f7;color:#20252b;font-family:Arial,sans-serif}
+header{background:#078b8e;color:white;padding:18px 16px}header h1{margin:0;font-size:23px}header p{margin:6px 0 0}
+.wrap{max-width:900px;margin:16px auto;padding:0 12px}.nav{display:grid;grid-template-columns:1fr 1fr 1fr;gap:7px;margin-bottom:14px}
+.nav button,.btn{border:0;border-radius:8px;font-weight:700;cursor:pointer}.nav button{height:48px;background:white;border:1px solid #ddd;font-size:15px}.nav .active{background:#078b8e;color:white}
+.panel{background:white;border-radius:10px;padding:16px;box-shadow:0 2px 10px #0001;margin-bottom:14px}h2{font-size:20px;margin:0 0 14px}
+label{display:block;font-weight:700;margin:0 0 6px}input,select,textarea{width:100%;padding:12px;border:1px solid #bbc1c7;border-radius:7px;font-size:16px;background:#fff}
+.search{display:grid;grid-template-columns:190px 1fr 120px;gap:8px}.btn{height:48px;color:white;padding:0 15px}.teal{background:#078b8e}.blue{background:#2878b8}.green{background:#45a64b}
+.result{margin-top:14px}.card{border:1px solid #ddd;border-radius:9px;margin-top:10px;overflow:hidden}.head{background:#f3f4f5;padding:12px;display:flex;justify-content:space-between;gap:8px}
+.badge{padding:6px 10px;border-radius:16px;background:#e7f5e8;color:#26712d;font-weight:700}.s2{background:#e8f0fb;color:#246398}.s3{background:#fff1dc;color:#996100}.out{background:#eee;color:#666}
+.info{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;padding:12px}.info span{display:block;color:#777;font-size:12px;margin-bottom:3px}
+.status{display:none;margin-top:12px;padding:11px;background:#e8f5e8;border-radius:7px}.hint{font-size:13px;color:#777}.history-row{padding:10px 0;border-bottom:1px solid #eee}
+@media(max-width:650px){.nav{grid-template-columns:1fr}.search{grid-template-columns:1fr}.info{grid-template-columns:1fr 1fr}}
 </style></head>
 <body>
 <header><h1>Склад — учёт мешков</h1><p>Поиск, добавление и выдача</p></header>
 <div class="wrap">
-<div class="nav"><button id="n1" class="active" onclick="page('search')">Поиск</button><button id="n2" onclick="page('op')">Добавить / выдать</button><button id="n3" onclick="page('hist')">История</button></div>
-<section id="search" class="panel"><h2>Поиск мешков</h2><div class="search"><select id="stype"><option value="cuval">По номеру клиента / Чувал №</option><option value="barcode">По баркоду</option><option value="fis">По Фиш №</option></select><input id="svalue" placeholder="Введите номер" onkeydown="if(event.key==='Enter')search()"><button class="btn teal" onclick="search()">НАЙТИ</button></div><div id="results" class="result"></div></section>
-<section id="op" class="panel" style="display:none"><h2>Добавить или выдать</h2><label>Действие</label><select id="action" onchange="mode()"><option value="add">Добавить на склад</option><option value="remove">Выдать со склада</option></select><div id="wh" style="margin-top:12px"><label>Склад</label><select id="warehouse"><option>Склад 1</option><option>Склад 2</option><option>Склад 3</option></select></div><div style="margin-top:12px"><label>Вставить данные из KargoSis</label><textarea id="text" rows="10" placeholder="Вставьте сюда скопированный текст KargoSis с колонками Fiş No, Barkod, Malzeme, Gönderen, Müşteri Kodu, Müşteri, Ağırlık"></textarea></div><div style="margin-top:12px"><label>Или выбрать текстовый файл</label><input id="file" type="file" accept=".txt,.csv"></div><button class="btn blue" style="width:100%;margin-top:12px" onclick="operate()">ЗАГРУЗИТЬ</button><div id="status" class="status"></div><p class="hint">При добавлении дата и время получения ставятся автоматически. «Товар» не отображается. При выдаче склад выбирать не нужно — система сама найдёт мешок по баркоду.</p></section>
-<section id="hist" class="panel" style="display:none"><h2>История</h2><div id="history"></div><button class="btn green" style="width:100%;margin-top:12px" onclick="location.href='/api/export'">ВЫГРУЗИТЬ БАЗУ</button></section>
+<div class="nav">
+<button id="n1" class="active" onclick="page('search')">Поиск</button>
+<button id="n2" onclick="page('op')">Добавить / выдать</button>
+<button id="n3" onclick="page('hist')">История</button>
+</div>
+
+<section id="search" class="panel">
+<h2>Поиск мешков</h2>
+<div class="search">
+<select id="stype">
+<option value="cuval">По номеру клиента / Чувал №</option>
+<option value="barcode">По баркоду</option>
+<option value="fis">По Фиш №</option>
+</select>
+<input id="svalue" placeholder="Введите номер" onkeydown="if(event.key==='Enter')search()">
+<button class="btn teal" onclick="search()">НАЙТИ</button>
+</div>
+<div id="results" class="result"></div>
+</section>
+
+<section id="op" class="panel" style="display:none">
+<h2>Добавить или выдать</h2>
+<label>Действие</label>
+<select id="action" onchange="mode()">
+<option value="add">Добавить на склад</option><option value="remove">Выдать со склада</option>
+</select>
+<div id="wh" style="margin-top:12px"><label>Склад</label>
+<select id="warehouse"><option>Склад 1</option><option>Склад 2</option><option>Склад 3</option></select></div>
+<div style="margin-top:12px"><label>Вставить данные из KargoSis</label>
+<textarea id="text" rows="10" placeholder="Вставьте сюда весь скопированный список KargoSis"></textarea></div>
+<div style="margin-top:12px"><label>Или выбрать текстовый файл</label><input id="file" type="file" accept=".txt,.csv"></div>
+<button class="btn blue" style="width:100%;margin-top:12px" onclick="operate()">ЗАГРУЗИТЬ</button>
+<div id="status" class="status"></div>
+<p class="hint">Для добавления дата и время получения ставятся автоматически. Müşteri Kodu записывается как Номер клиента / Чувал №. При выдаче склад выбирать не нужно — система сама найдёт мешок по баркоду.</p>
+</section>
+
+<section id="hist" class="panel" style="display:none">
+<h2>История</h2><div id="history"></div>
+<button class="btn green" style="width:100%;margin-top:12px" onclick="location.href='/api/export'">ВЫГРУЗИТЬ БАЗУ</button>
+</section>
 </div>
 <script>
 function page(p){['search','op','hist'].forEach(x=>document.getElementById(x).style.display=x===p?'block':'none');document.getElementById('n1').classList.toggle('active',p==='search');document.getElementById('n2').classList.toggle('active',p==='op');document.getElementById('n3').classList.toggle('active',p==='hist');if(p==='hist')loadHistory();window.scrollTo(0,0)}
 function mode(){document.getElementById('wh').style.display=document.getElementById('action').value==='add'?'block':'none'}
 function esc(s){return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]))}
-async function search(){const type=document.getElementById('stype').value,v=document.getElementById('svalue').value.trim();if(!v)return;const r=await fetch('/api/search?type='+encodeURIComponent(type)+'&value='+encodeURIComponent(v)).then(x=>x.json());const el=document.getElementById('results');if(!r.length){el.innerHTML='<p>Ничего не найдено.</p>';return}el.innerHTML=r.map(x=>`<div class="card"><div class="head"><b>Номер клиента: ${esc(x.cuval||'—')}</b><span class="badge ${x.status!=='В наличии'?'out':x.warehouse==='Склад 2'?'s2':x.warehouse==='Склад 3'?'s3':''}">${esc(x.status==='В наличии'?x.warehouse:'Выдан')}</span></div><div class="info"><div><span>Баркод</span><b>${esc(x.barcode)}</b></div><div><span>Фиш №</span><b>${esc(x.fis||'—')}</b></div><div><span>KG</span><b>${esc(x.kg||'—')}</b></div><div><span>Получен</span><b>${esc(x.received_at||x.added_at||'—')}</b></div><div><span>Склад</span><b>${esc(x.status==='В наличии'?x.warehouse:'—')}</b></div></div></div>`).join('')}
-async function operate(){const a=document.getElementById('action').value;const fd=new FormData();fd.append('action',a);fd.append('warehouse',document.getElementById('warehouse').value);fd.append('text',document.getElementById('text').value);const f=document.getElementById('file').files[0];if(f)fd.append('file',f);const r=await fetch('/api/operation',{method:'POST',body:fd});const d=await r.json();const s=document.getElementById('status');s.style.display='block';if(!r.ok){s.textContent=d.error||'Ошибка';return}s.innerHTML=a==='add'?`Добавлено: <b>${d.added}</b><br>Дубликатов: <b>${d.duplicates}</b>`:`Выдано: <b>${d.removed}</b><br>Не найдено: <b>${d.notFound}</b>`;document.getElementById('text').value='';document.getElementById('file').value=''}
+async function search(){
+ const type=document.getElementById('stype').value,v=document.getElementById('svalue').value.trim();if(!v)return;
+ const r=await fetch('/api/search?type='+encodeURIComponent(type)+'&value='+encodeURIComponent(v)).then(x=>x.json());
+ const el=document.getElementById('results');
+ if(!r.length){el.innerHTML='<p>Ничего не найдено.</p>';return}
+ el.innerHTML=r.map(x=>`<div class="card">
+ <div class="head"><b>Номер клиента: ${esc(x.cuval||'—')}</b>
+ <span class="badge ${x.status!=='В наличии'?'out':x.warehouse==='Склад 2'?'s2':x.warehouse==='Склад 3'?'s3':''}">${esc(x.status==='В наличии'?x.warehouse:'Выдан')}</span></div>
+ <div class="info">
+ <div><span>Баркод</span><b>${esc(x.barcode)}</b></div>
+ <div><span>Фиш №</span><b>${esc(x.fis||'—')}</b></div>
+ <div><span>KG</span><b>${esc(x.kg||'—')}</b></div>
+ <div><span>Получен</span><b>${esc(x.received_at||x.added_at||'—')}</b></div>
+ <div><span>Товар</span><b>${esc(x.name||'—')}</b></div>
+ <div><span>Отправитель</span><b>${esc(x.sender||'—')}</b></div>
+ </div></div>`).join('')
+}
+async function operate(){
+ const a=document.getElementById('action').value,fd=new FormData();
+ fd.append('action',a);fd.append('warehouse',document.getElementById('warehouse').value);fd.append('text',document.getElementById('text').value);
+ const f=document.getElementById('file').files[0];if(f)fd.append('file',f);
+ const r=await fetch('/api/operation',{method:'POST',body:fd});const d=await r.json();const s=document.getElementById('status');
+ s.style.display='block';
+ if(!r.ok){s.textContent=d.error||'Ошибка';return}
+ s.innerHTML=a==='add'?`Распознано: <b>${d.parsed}</b><br>Добавлено: <b>${d.added}</b><br>Дубликатов: <b>${d.duplicates}</b>`:`Распознано: <b>${d.parsed}</b><br>Выдано: <b>${d.removed}</b><br>Не найдено: <b>${d.notFound}</b>`;
+ document.getElementById('text').value='';document.getElementById('file').value=''
+}
 async function loadHistory(){const r=await fetch('/api/history').then(x=>x.json());document.getElementById('history').innerHTML=r.length?r.map(x=>`<div class="history-row"><b>${esc(x.action)}</b> — ${esc(x.barcode)} / Номер клиента ${esc(x.cuval||'—')} / ${esc(x.warehouse||'—')}<br><small>${esc(x.time)}</small></div>`).join(''):'<p>История пока пустая.</p>'}
 mode();
 </script></body></html>
